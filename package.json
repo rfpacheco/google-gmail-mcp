@@ -4,6 +4,15 @@
   "description": "Gmail MCP Server and Sorting/Filtering Architecture",
   "type": "module",
   "main": "dist/sorting-and-filtering/index.js",
+  "bin": {
+    "google-gmail-mcp": "dist/mcp/hybrid-server.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "config/*.example.json",
+    "docs"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "gmail-mcp",

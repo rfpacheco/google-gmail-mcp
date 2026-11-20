@@ -1,0 +1,26 @@
+# Dependencies, lockfiles, and build outputs
+node_modules/
+dist/
+package-lock.json
+
+# Secrets & personal local configuration (never index or read)
+gcp-oauth.keys.json
+credentials.json
+config/*.local.json
+*.local.json
+*.pem
+*.key
+.env
+.env.*
+
+# Unrelated personal notes & logs
+GITHUB_REPOS_AUDIT.md
+*.log
+
+# Tooling / IDE / AgentsRoom runtime plumbing
+.agentsroom/
+.agents/
+.claude/
+.mcp.json
+.vscode/
+.idea/
