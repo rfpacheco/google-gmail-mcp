@@ -135,6 +135,19 @@ The Hybrid MCP server exposes 8 high-level tools backed by the core engine:
 
 ---
 
+## Agent Skill Playbook (`SKILL.md`)
+
+This repository includes a portable, standards-compliant [`SKILL.md`](SKILL.md) playbook designed for AI agents (Claude Code, Cursor, GitHub Copilot, and agent skill marketplaces like Agensi.io).
+
+It teaches autonomous agents:
+- When and how to safely orchestrate the 8 coarse-grained MCP tools.
+- Step-by-step playbooks for inbox health audits, multi-attribute sorting, baseline taxonomy setup, Inbox Zero sweeps, and server-side filter creation.
+- Strict safety guardrails (preview before mutating, duplicate filter checks, non-destructive storage audits).
+
+To install this skill in your AI assistant, point your agent to [`SKILL.md`](SKILL.md) or copy it into your agent's skills directory.
+
+---
+
 ## Documentation
 
 - [Architecture & MCP Reference](docs/gmail-architecture.md) — 5-pillar sorting/filtering architecture, two-tier label taxonomy, and MCP tool schemas.

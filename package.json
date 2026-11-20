@@ -10,6 +10,7 @@
   "files": [
     "dist",
     "README.md",
+    "SKILL.md",
     "config/*.example.json",
     "docs"
   ],
