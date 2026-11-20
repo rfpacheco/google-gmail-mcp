@@ -1,0 +1,174 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Example rule configuration for Gmail label hierarchy reorganization and automated filter creation.",
+  "labelRenameMap": {
+    "DEV": "Dev",
+    "DEV/GitHub": "Dev/GitHub",
+    "DEV/GitLab": "Dev/GitLab",
+    "DEV/JIRA": "Dev/Jira",
+    "DEV/OpenAI": "Dev/OpenAI",
+    "DEV/anthropic": "Dev/Anthropic",
+    "DEV/LangChain": "Dev/LangChain",
+    "DEV/DigitalOcean": "Dev/DigitalOcean",
+    "DEV/cloudfare": "Dev/Cloudflare",
+    "DEV/protonVPN": "Dev/ProtonVPN",
+    "DEV/Bioinformatics": "Dev/Bioinformatics",
+    "DEV/LeetCode": "Dev/LeetCode",
+    "JetBrains": "Dev/JetBrains",
+    "Coding webs": "Dev/WebResources",
+    "Hackaton": "Dev/Hackathons",
+    "NVIDIA": "Dev/Nvidia",
+    "BANK": "Finance/Banking",
+    "Tax": "Finance/Tax",
+    "Buys": "Finance/Purchases",
+    "Amazon": "Finance/Amazon",
+    "Subscriptions": "Finance/Subscriptions",
+    "Jobs/LinkedIn": "Jobs/LinkedIn",
+    "Jobs/submitted": "Jobs/Applications",
+    "Jobs/interesting": "Jobs/Opportunities",
+    "Jobs/burocracy": "Jobs/Paperwork",
+    "VIAJES": "Travel",
+    "Transporte": "Transport",
+    "Transporte/VTC": "Transport/VTC",
+    "CAR": "Transport/Car",
+    "Learning/Languages": "Learning/Languages",
+    "3D Desing": "Design/3D",
+    "SocialWeb": "Social"
+  },
+  "automatedRules": [
+    {
+      "name": "OpenAI & ChatGPT",
+      "criteria": {
+        "from": "openai.com OR tm1.openai.com OR chatgpt.com"
+      },
+      "targetLabelName": "Dev/OpenAI",
+      "removeLabelIds": ["INBOX"]
+    },
+    {
+      "name": "LangChain AI",
+      "criteria": {
+        "from": "langchain.com OR mail.langchain.com OR langchain.dev"
+      },
+      "targetLabelName": "Dev/LangChain",
+      "removeLabelIds": ["INBOX"]
+    },
+    {
+      "name": "Quora Digest",
+      "criteria": {
+        "from": "quora.com OR quoramail.com"
+      },
+      "targetLabelName": "Social",
+      "removeLabelIds": ["INBOX"]
+    },
+    {
+      "name": "X (Twitter)",
+      "criteria": {
+        "from": "x.com OR twitter.com"
+      },
+      "targetLabelName": "Social",
+      "removeLabelIds": ["INBOX"]
+    },
+    {
+      "name": "Goodreads",
+      "criteria": {
+        "from": "goodreads.com"
+      },
+      "targetLabelName": "Social",
+      "removeLabelIds": ["INBOX"]
+    },
+    {
+      "name": "Ollama AI",
+      "criteria": {
+        "from": "ollama.com OR ollama.ai"
+      },
+      "targetLabelName": "Dev",
+      "removeLabelIds": ["INBOX"]
+    },
+    {
+      "name": "Deliveries & Shipping",
+      "criteria": {
+        "from": "dhl.com OR fedex.com OR ups.com"
+      },
+      "targetLabelName": "Finance/Purchases",
+      "removeLabelIds": ["INBOX"]
+    },
+    {
+      "name": "Gaming & Streaming",
+      "criteria": {
+        "from": "epicgames.com OR steampowered.com"
+      },
+      "targetLabelName": "Finance/Subscriptions",
+      "removeLabelIds": ["INBOX"]
+    },
+    {
+      "name": "Job Alerts",
+      "criteria": {
+        "from": "jobalerts.example.com"
+      },
+      "targetLabelName": "Jobs",
+      "removeLabelIds": ["INBOX"]
+    },
+    {
+      "name": "Jira & Productivity Ecosystem",
+      "criteria": {
+        "from": "atlassian.net OR jira.com"
+      },
+      "targetLabelName": "Dev/Jira",
+      "removeLabelIds": ["INBOX"]
+    },
+    {
+      "name": "Rides & Transport",
+      "criteria": {
+        "from": "uber.com OR email-support.uber.com"
+      },
+      "targetLabelName": "Transport/VTC",
+      "removeLabelIds": ["INBOX"]
+    },
+    {
+      "name": "GitHub Notifications",
+      "criteria": {
+        "from": "github.com OR githubeducation@github.com"
+      },
+      "targetLabelName": "Dev/GitHub",
+      "removeLabelIds": ["INBOX", "SPAM"]
+    },
+    {
+      "name": "LinkedIn Updates",
+      "criteria": {
+        "from": "groups-noreply@linkedin.com"
+      },
+      "targetLabelName": "Jobs/LinkedIn",
+      "removeLabelIds": ["INBOX"]
+    },
+    {
+      "name": "AI Developer Platforms",
+      "criteria": {
+        "from": "agentsroom.dev OR m8ven.ai"
+      },
+      "targetLabelName": "Dev/WebResources",
+      "removeLabelIds": ["INBOX"]
+    }
+  ],
+  "senderTriageMappings": [
+    {
+      "match": "github.com",
+      "targetLabel": "Dev/GitHub"
+    },
+    {
+      "match": "uber.com",
+      "targetLabel": "Transport/VTC"
+    },
+    {
+      "match": "linkedin.com",
+      "targetLabel": "Jobs/LinkedIn"
+    },
+    {
+      "match": "m8ven.ai",
+      "targetLabel": "Dev/WebResources"
+    },
+    {
+      "match": "agentsroom.dev",
+      "targetLabel": "Dev/WebResources"
+    }
+  ]
+}
