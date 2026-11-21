@@ -9,11 +9,11 @@ On-demand technical reference for the 5-pillar Gmail organization engine and MCP
 Gmail API search does not support SQL-style `ORDER BY`. This project layers a shared TypeScript core under two execution interfaces:
 
 - **Pure core (`src/sorting-and-filtering/`)**: `GmailQueryBuilder` (`query-builder.ts`), `GmailFilterTemplates` (`filter-manager.ts`), `GmailSorter` (`sorter.ts`), and baseline `RECOMMENDED_LABEL_TAXONOMY` (`taxonomy.ts`).
-- **Gmail API service (`src/services/`)**: `getAuthenticatedGmailClient` (`gmail-client.ts`) and `searchAndSortEmails`, `batchApplyTriage`, `syncTaxonomyLabels`, `createPersistentFilter` (`batch-triage-service.ts`).
+- **Gmail API service (`src/services/`)**: `getAuthenticatedGmailClient` (`gmail-client.ts`, native loopback OAuth2) and `searchAndSortEmails`, `batchApplyTriage`, `syncTaxonomyLabels`, `createPersistentFilter` (`batch-triage-service.ts`).
 - **Externalized config (`src/utils/config-loader.ts`)**: Reads `config/rules.local.json` and `config/purge.local.json`, falling back to `config/*.example.json`.
 - **Interfaces**:
   1. **Headless CLI scripts (`src/scripts/`)** for deterministic bulk operations without LLM latency.
-  2. **Hybrid MCP server (`src/mcp/hybrid-server.ts`)** exposing 4 coarse-grained tools over Stdio.
+  2. **Hybrid MCP server (`src/mcp/hybrid-server.ts`)** exposing 8 coarse-grained tools over Stdio.
 
 ---
 
@@ -29,18 +29,22 @@ Gmail API search does not support SQL-style `ORDER BY`. This project layers a sh
 
 ---
 
-## 3. MCP Servers Reference
+## 3. MCP Server Reference
 
-### Hybrid MCP Server (`npm run mcp-hybrid`)
+### Standalone Hybrid MCP Server (`npm run mcp-hybrid` / `npm run start`)
 
-Implemented in `src/mcp/hybrid-server.ts` (`gmail-hybrid-mcp`, Stdio transport). Exposes 4 coarse-grained tools backed by `batch-triage-service.ts`:
+Implemented in `src/mcp/hybrid-server.ts` (`gmail-hybrid-mcp`, Stdio transport). Exposes 8 coarse-grained tools backed by `batch-triage-service.ts` and `gmail-client.ts`:
 
 | Tool | Purpose | Key Inputs |
 | :--- | :--- | :--- |
 | `gmail_search_and_sort` | Search with native operators + client-side sort | `from`, `to`, `subject`, `text`, `hasAttachment`, `afterDate`, `beforeDate`, `isUnread`, `label`, `category`, `sortField`, `sortDirection`, `maxResults` (1–250) |
 | `gmail_batch_triage` | Atomic bulk label add/archive/mark-read (auto-creates missing labels) | `messageIds`, `addLabelNames`, `archiveInbox`, `markAsRead` |
 | `gmail_sync_taxonomy_labels` | Idempotently creates baseline taxonomy labels and returns `name -> id` map | *(none)* |
-| `gmail_create_filter` | Creates a persistent server-side Gmail filter rule | `from`, `subject`, `query`, `targetLabelName`, `archiveInbox` |
+| `gmail_create_filter` | Creates a persistent server-side Gmail filter rule with Skip Inbox option | `from`, `subject`, `query`, `targetLabelName`, `archiveInbox` |
+| `gmail_list_filters` | Lists all existing automated filter rules in Gmail settings | *(none)* |
+| `gmail_delete_filter` | Deletes a server-side filter rule by unique filter ID | `filterId` |
+| `gmail_inbox_summary` | Read-only breakdown of INBOX status and category metrics | *(none)* |
+| `gmail_storage_audit` | Read-only scan for heavy emails exceeding a threshold (MB) | `thresholdMB` (1–50, default: 5), `maxResults` |
 
 MCP client configuration example (local checkout):
 
@@ -48,14 +52,23 @@ MCP client configuration example (local checkout):
 {
   "mcpServers": {
     "gmail-hybrid": {
-      "command": "npm",
-      "args": ["run", "--silent", "mcp-hybrid"],
+      "command": "node",
+      "args": ["dist/mcp/hybrid-server.js"],
       "cwd": "/path/to/google-gmail-mcp"
     }
   }
 }
 ```
 
-### Upstream `@pouyanafisi/gmail-mcp` (`npm run start`)
+Or run via npx:
 
-Installed as a dependency for low-level single-message operations (19 tools: `search_emails`, `read_email`, `count_emails`, `send_email`, `draft_email`, `modify_email`, `delete_email`, `download_attachment`, `batch_modify_emails` [up to 100/call], `batch_delete_emails`, plus label and filter CRUD). Run via `npm run start` or `npx -y @pouyanafisi/gmail-mcp`.
+```json
+{
+  "mcpServers": {
+    "gmail-hybrid": {
+      "command": "npx",
+      "args": ["-y", "google-gmail-mcp"]
+    }
+  }
+}
+```

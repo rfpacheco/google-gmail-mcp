@@ -157,4 +157,4 @@ To install this skill in your AI assistant, point your agent to [`SKILL.md`](SKI
 
 ## License
 
-MIT
+All Rights Reserved — Free for personal, non-commercial use only (see [LICENSE](LICENSE)).

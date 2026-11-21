@@ -11,11 +11,13 @@
     "dist",
     "README.md",
     "SKILL.md",
+    "LICENSE",
     "config/*.example.json",
     "docs"
   ],
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "start": "node dist/mcp/hybrid-server.js",
     "auth": "tsx src/scripts/auth.ts",
     "audit": "tsx src/scripts/audit.ts",
@@ -37,8 +39,19 @@
     "filtering",
     "email"
   ],
-  "author": "",
-  "license": "MIT",
+  "author": "Ronny Pacheco",
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rfpacheco/google-gmail-mcp.git"
+  },
+  "homepage": "https://github.com/rfpacheco/google-gmail-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/rfpacheco/google-gmail-mcp/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "dotenv": "^18.0.10",
