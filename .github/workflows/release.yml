@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish to npm & Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Ensure npm with native OIDC Trusted Publishing support
+        run: |
+          npm install -g npm@latest
+          sed -i '/_authToken/d' ~/.npmrc 2>/dev/null || true
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck TypeScript
+        run: npx tsc --noEmit
+
+      - name: Build project
+        run: npm run build
+
+      - name: Audit production dependencies (0 vulnerabilities gate)
+        run: npm audit --omit=dev --audit-level=moderate
+
+      - name: Verify release tag matches package.json version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
+            exit 1
+          fi
+          echo "Version match confirmed: tag v$TAG_VERSION matches package.json $PKG_VERSION"
+
+      - name: Pack release tarball
+        run: npm pack
+
+      - name: Publish to npm with provenance (OIDC Trusted Publishing)
+        run: npm publish --provenance --access public
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" *.tgz \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
