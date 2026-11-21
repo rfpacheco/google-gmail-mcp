@@ -66,7 +66,7 @@ The repository uses externalized JSON configuration files in `config/` so you ca
 | `npm run storage` | Scans and lists the heaviest emails (>10MB / >5MB) in the account. |
 | `npm run purge` | Safe dry-run storage purge with configurable whitelist (pass `-- --execute` to move candidates to Trash). |
 | `npm run mcp-hybrid` | Starts this repo's Hybrid MCP server (`src/mcp/hybrid-server.ts`) over Stdio. |
-| `npm run start` | Starts the upstream `@pouyanafisi/gmail-mcp` server. |
+| `npm run start` | Starts the `google-gmail-mcp` Stdio server (`dist/mcp/hybrid-server.js`). |
 
 ---
 

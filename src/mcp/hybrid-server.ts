@@ -9,6 +9,8 @@
  * @packageDocumentation
  */
 
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -585,12 +587,35 @@ Environment Variables:
   await startHybridMcpServer();
 }
 
+/**
+ * Determines whether the current module was executed directly as the CLI entrypoint.
+ * Safely resolves symlinks (e.g. npx cache, node_modules/.bin shims, global npm links) via realpathSync.
+ *
+ * @returns True if executed directly as the CLI entrypoint.
+ */
+function isEntrypoint(): boolean {
+  if (!process.argv[1]) {
+    return false;
+  }
+  try {
+    const currentFilePath = fs.realpathSync(fileURLToPath(import.meta.url));
+    const executedFilePath = fs.realpathSync(process.argv[1]);
+    if (currentFilePath === executedFilePath) {
+      return true;
+    }
+  } catch {
+    // Fallback if realpathSync fails (e.g. virtual filesystem or missing file)
+  }
+
+  return (
+    import.meta.url === `file://${process.argv[1]}` ||
+    process.argv[1].endsWith('hybrid-server.js') ||
+    process.argv[1].endsWith('google-gmail-mcp')
+  );
+}
+
 // Auto-run if executed directly as entrypoint or via bin wrapper
-if (
-  import.meta.url === `file://${process.argv[1]}` ||
-  process.argv[1]?.endsWith('hybrid-server.js') ||
-  process.argv[1]?.endsWith('google-gmail-mcp')
-) {
+if (isEntrypoint()) {
   main().catch((err: unknown) => {
     console.error('Fatal MCP Server Error:', err instanceof Error ? err.message : String(err));
     process.exit(1);
