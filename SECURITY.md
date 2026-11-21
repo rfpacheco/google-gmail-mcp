@@ -7,7 +7,6 @@ We take the security of `google-gmail-mcp` seriously. Because this software inte
 If you discover a security vulnerability or potential exposure:
 1. **Do not disclose it publicly** on GitHub issues, discussions, or social media.
 2. Please report it privately using **[GitHub Private Vulnerability Reporting](https://github.com/rfpacheco/google-gmail-mcp/security/advisories/new)** on this repository.
-3. If GitHub Private Reporting is unavailable, contact the maintainer directly at `ronnyfph@gmail.com` with the subject `[SECURITY] google-gmail-mcp`.
 
 Please include:
 - A description of the issue and potential impact.

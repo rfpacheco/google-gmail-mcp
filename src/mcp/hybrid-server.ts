@@ -28,6 +28,75 @@ import {
 import { SortField, SortDirection } from '../sorting-and-filtering/sorter.js';
 
 /**
+ * MCP tool response interface adhering to Model Context Protocol specification.
+ */
+interface McpToolResponse {
+  [key: string]: unknown;
+  content: Array<{ type: 'text'; text: string }>;
+  isError?: boolean;
+}
+
+/**
+ * Ensures Google Cloud OAuth client keys and user authorization tokens are present.
+ * Returns an error response if credentials are not configured, without leaking absolute filesystem paths.
+ *
+ * @returns Error response if unauthenticated, or null if credentials are valid.
+ */
+function ensureAuthenticated(): McpToolResponse | null {
+  const { hasKeys, hasTokens } = checkCredentialsStatus();
+  if (!hasKeys) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'Error: Missing Google Cloud OAuth Client credentials. Place gcp-oauth.keys.json in the project root or ~/.gmail-mcp/, or specify path via GMAIL_OAUTH_PATH environment variable.',
+        },
+      ],
+    };
+  }
+  if (!hasTokens) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'Error: Gmail credentials are not authenticated. Run "npx google-gmail-mcp auth" (or "npm run auth") to authorize access.',
+        },
+      ],
+    };
+  }
+  return null;
+}
+
+/**
+ * Sanitizes errors to prevent exposing raw stack traces, authorization tokens, or internal filesystem paths.
+ *
+ * @param error - The error caught during tool execution.
+ * @param context - Contextual operation label.
+ * @returns Sanitized error response for MCP client.
+ */
+function formatSafeError(error: unknown, context: string): McpToolResponse {
+  let message = error instanceof Error ? error.message : String(error);
+
+  // Redact home directory and absolute path patterns
+  message = message.replace(/\/home\/[^\s'"]+/g, '[REDACTED_PATH]');
+  message = message.replace(/[A-Za-z]:\\[^\s'"]+/g, '[REDACTED_PATH]');
+  // Redact potential bearer tokens or secrets
+  message = message.replace(/ya29\.[a-zA-Z0-9_\-]+/g, '[REDACTED_TOKEN]');
+
+  return {
+    isError: true,
+    content: [
+      {
+        type: 'text',
+        text: `Error during ${context}: ${message}`,
+      },
+    ],
+  };
+}
+
+/**
  * Initializes and starts the Hybrid Gmail MCP Server over Stdio.
  */
 export async function startHybridMcpServer(): Promise<void> {
@@ -65,63 +134,58 @@ export async function startHybridMcpServer(): Promise<void> {
       maxResults: z.number().min(1).max(250).default(50).describe('Max messages to retrieve and sort'),
     },
     async (args) => {
-      const { hasTokens } = checkCredentialsStatus();
-      if (!hasTokens) {
+      const authError = ensureAuthenticated();
+      if (authError) return authError;
+
+      try {
+        const gmail = getAuthenticatedGmailClient();
+        const sortField = args.sortField as SortField;
+        const sortDirection = args.sortDirection as SortDirection;
+
+        const result = await searchAndSortEmails(
+          gmail,
+          {
+            from: args.from,
+            to: args.to,
+            subject: args.subject,
+            text: args.text,
+            hasAttachment: args.hasAttachment,
+            afterDate: args.afterDate,
+            beforeDate: args.beforeDate,
+            isUnread: args.isUnread,
+            label: args.label,
+            category: args.category,
+          },
+          {
+            field: sortField,
+            direction: sortDirection,
+          },
+          args.maxResults
+        );
+
+        const summaryText = [
+          `Search Query: "${result.query}"`,
+          `Matched Messages: ${result.totalFound}`,
+          `Retrieved & Sorted: ${result.sortedEmails.length}`,
+          '',
+          ...result.sortedEmails.map((e, idx) => {
+            const dateStr = typeof e.date === 'string' ? e.date : new Date(e.date).toISOString();
+            const sizeStr = e.sizeEstimate ? ` [${Math.round(e.sizeEstimate / 1024)} KB]` : '';
+            return `${idx + 1}. [${e.id}] From: ${e.from} | Subject: "${e.subject}" | Date: ${dateStr}${sizeStr}`;
+          }),
+        ].join('\n');
+
         return {
           content: [
             {
               type: 'text',
-              text: 'Error: Gmail credentials are not authenticated. Run "npx google-gmail-mcp auth" first.',
+              text: summaryText,
             },
           ],
         };
+      } catch (err: unknown) {
+        return formatSafeError(err, 'gmail_search_and_sort');
       }
-
-      const gmail = getAuthenticatedGmailClient();
-      const sortField = args.sortField as SortField;
-      const sortDirection = args.sortDirection as SortDirection;
-
-      const result = await searchAndSortEmails(
-        gmail,
-        {
-          from: args.from,
-          to: args.to,
-          subject: args.subject,
-          text: args.text,
-          hasAttachment: args.hasAttachment,
-          afterDate: args.afterDate,
-          beforeDate: args.beforeDate,
-          isUnread: args.isUnread,
-          label: args.label,
-          category: args.category,
-        },
-        {
-          field: sortField,
-          direction: sortDirection,
-        },
-        args.maxResults
-      );
-
-      const summaryText = [
-        `Search Query: "${result.query}"`,
-        `Matched Messages: ${result.totalFound}`,
-        `Retrieved & Sorted: ${result.sortedEmails.length}`,
-        '',
-        ...result.sortedEmails.map((e, idx) => {
-          const dateStr = typeof e.date === 'string' ? e.date : new Date(e.date).toISOString();
-          const sizeStr = e.sizeEstimate ? ` [${Math.round(e.sizeEstimate / 1024)} KB]` : '';
-          return `${idx + 1}. [${e.id}] From: ${e.from} | Subject: "${e.subject}" | Date: ${dateStr}${sizeStr}`;
-        }),
-      ].join('\n');
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: summaryText,
-          },
-        ],
-      };
     }
   );
 
@@ -139,51 +203,46 @@ export async function startHybridMcpServer(): Promise<void> {
       markAsRead: z.boolean().default(false).describe('Whether to remove the UNREAD label (mark as read)'),
     },
     async (args) => {
-      const { hasTokens } = checkCredentialsStatus();
-      if (!hasTokens) {
+      const authError = ensureAuthenticated();
+      if (authError) return authError;
+
+      try {
+        const gmail = getAuthenticatedGmailClient();
+        const labelMap = await syncTaxonomyLabels(gmail);
+
+        const addLabelIds: string[] = [];
+        if (args.addLabelNames && args.addLabelNames.length > 0) {
+          for (const name of args.addLabelNames) {
+            const matchedId = labelMap[name] || labelMap[name.toUpperCase()];
+            if (matchedId) {
+              addLabelIds.push(matchedId);
+            } else {
+              const created = await gmail.users.labels.create({
+                userId: 'me',
+                requestBody: { name, labelListVisibility: 'labelShow', messageListVisibility: 'show' },
+              });
+              if (created.data.id) addLabelIds.push(created.data.id);
+            }
+          }
+        }
+
+        const removeLabelIds: string[] = [];
+        if (args.archiveInbox) removeLabelIds.push('INBOX');
+        if (args.markAsRead) removeLabelIds.push('UNREAD');
+
+        const triageResult = await batchApplyTriage(gmail, args.messageIds, addLabelIds, removeLabelIds);
+
         return {
           content: [
             {
               type: 'text',
-              text: 'Error: Gmail credentials are not authenticated. Run "npx google-gmail-mcp auth" first.',
+              text: `Successfully triaged ${triageResult.modifiedCount} message(s).\nAdded Labels: ${addLabelIds.join(', ') || 'None'}\nRemoved Labels: ${removeLabelIds.join(', ') || 'None'}`,
             },
           ],
         };
+      } catch (err: unknown) {
+        return formatSafeError(err, 'gmail_batch_triage');
       }
-
-      const gmail = getAuthenticatedGmailClient();
-      const labelMap = await syncTaxonomyLabels(gmail);
-
-      const addLabelIds: string[] = [];
-      if (args.addLabelNames && args.addLabelNames.length > 0) {
-        for (const name of args.addLabelNames) {
-          const matchedId = labelMap[name] || labelMap[name.toUpperCase()];
-          if (matchedId) {
-            addLabelIds.push(matchedId);
-          } else {
-            const created = await gmail.users.labels.create({
-              userId: 'me',
-              requestBody: { name, labelListVisibility: 'labelShow', messageListVisibility: 'show' },
-            });
-            if (created.data.id) addLabelIds.push(created.data.id);
-          }
-        }
-      }
-
-      const removeLabelIds: string[] = [];
-      if (args.archiveInbox) removeLabelIds.push('INBOX');
-      if (args.markAsRead) removeLabelIds.push('UNREAD');
-
-      const triageResult = await batchApplyTriage(gmail, args.messageIds, addLabelIds, removeLabelIds);
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Successfully triaged ${triageResult.modifiedCount} message(s).\nAdded Labels: ${addLabelIds.join(', ') || 'None'}\nRemoved Labels: ${removeLabelIds.join(', ') || 'None'}`,
-          },
-        ],
-      };
     }
   );
 
@@ -196,30 +255,25 @@ export async function startHybridMcpServer(): Promise<void> {
     'Ensures all standardized organizational labels (Work, Finance, Newsletters, etc.) exist in the user Gmail account.',
     {},
     async () => {
-      const { hasTokens } = checkCredentialsStatus();
-      if (!hasTokens) {
+      const authError = ensureAuthenticated();
+      if (authError) return authError;
+
+      try {
+        const gmail = getAuthenticatedGmailClient();
+        const labelMap = await syncTaxonomyLabels(gmail);
+
+        const lines = Object.entries(labelMap).map(([name, id]) => ` - ${name}: ${id}`);
         return {
           content: [
             {
               type: 'text',
-              text: 'Error: Gmail credentials are not authenticated. Run "npx google-gmail-mcp auth" first.',
+              text: `Label taxonomy synchronized (${Object.keys(labelMap).length} labels total):\n${lines.join('\n')}`,
             },
           ],
         };
+      } catch (err: unknown) {
+        return formatSafeError(err, 'gmail_sync_taxonomy_labels');
       }
-
-      const gmail = getAuthenticatedGmailClient();
-      const labelMap = await syncTaxonomyLabels(gmail);
-
-      const lines = Object.entries(labelMap).map(([name, id]) => ` - ${name}: ${id}`);
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Label taxonomy synchronized (${Object.keys(labelMap).length} labels total):\n${lines.join('\n')}`,
-          },
-        ],
-      };
     }
   );
 
@@ -238,61 +292,56 @@ export async function startHybridMcpServer(): Promise<void> {
       archiveInbox: z.boolean().default(false).describe('Whether to skip the inbox'),
     },
     async (args) => {
-      const { hasTokens } = checkCredentialsStatus();
-      if (!hasTokens) {
+      const authError = ensureAuthenticated();
+      if (authError) return authError;
+
+      try {
+        const gmail = getAuthenticatedGmailClient();
+        let targetLabelId: string | undefined;
+
+        if (args.targetLabelName) {
+          const labelMap = await syncTaxonomyLabels(gmail);
+          targetLabelId = labelMap[args.targetLabelName];
+          if (!targetLabelId) {
+            const created = await gmail.users.labels.create({
+              userId: 'me',
+              requestBody: {
+                name: args.targetLabelName,
+                labelListVisibility: 'labelShow',
+                messageListVisibility: 'show',
+              },
+            });
+            targetLabelId = created.data.id || undefined;
+          }
+        }
+
+        const addLabelIds = targetLabelId ? [targetLabelId] : [];
+        const removeLabelIds = args.archiveInbox ? ['INBOX'] : [];
+
+        const filter = await createPersistentFilter(
+          gmail,
+          {
+            from: args.from,
+            subject: args.subject,
+            query: args.query,
+          },
+          {
+            addLabelIds,
+            removeLabelIds,
+          }
+        );
+
         return {
           content: [
             {
               type: 'text',
-              text: 'Error: Gmail credentials are not authenticated. Run "npx google-gmail-mcp auth" first.',
+              text: `Automated filter created successfully (ID: ${filter.id}).\nCriteria: ${JSON.stringify(filter.criteria)}\nAction: ${JSON.stringify(filter.action)}`,
             },
           ],
         };
+      } catch (err: unknown) {
+        return formatSafeError(err, 'gmail_create_filter');
       }
-
-      const gmail = getAuthenticatedGmailClient();
-      let targetLabelId: string | undefined;
-
-      if (args.targetLabelName) {
-        const labelMap = await syncTaxonomyLabels(gmail);
-        targetLabelId = labelMap[args.targetLabelName];
-        if (!targetLabelId) {
-          const created = await gmail.users.labels.create({
-            userId: 'me',
-            requestBody: {
-              name: args.targetLabelName,
-              labelListVisibility: 'labelShow',
-              messageListVisibility: 'show',
-            },
-          });
-          targetLabelId = created.data.id || undefined;
-        }
-      }
-
-      const addLabelIds = targetLabelId ? [targetLabelId] : [];
-      const removeLabelIds = args.archiveInbox ? ['INBOX'] : [];
-
-      const filter = await createPersistentFilter(
-        gmail,
-        {
-          from: args.from,
-          subject: args.subject,
-          query: args.query,
-        },
-        {
-          addLabelIds,
-          removeLabelIds,
-        }
-      );
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Automated filter created successfully (ID: ${filter.id}).\nCriteria: ${JSON.stringify(filter.criteria)}\nAction: ${JSON.stringify(filter.action)}`,
-          },
-        ],
-      };
     }
   );
 
@@ -305,44 +354,39 @@ export async function startHybridMcpServer(): Promise<void> {
     'Lists all existing automated server-side filter rules registered in the user Gmail settings.',
     {},
     async () => {
-      const { hasTokens } = checkCredentialsStatus();
-      if (!hasTokens) {
+      const authError = ensureAuthenticated();
+      if (authError) return authError;
+
+      try {
+        const gmail = getAuthenticatedGmailClient();
+        const res = await gmail.users.settings.filters.list({ userId: 'me' });
+        const filters = res.data.filter || [];
+
+        const summaryLines = filters.map((f, idx) => {
+          const criteriaParts: string[] = [];
+          if (f.criteria?.from) criteriaParts.push(`from: "${f.criteria.from}"`);
+          if (f.criteria?.to) criteriaParts.push(`to: "${f.criteria.to}"`);
+          if (f.criteria?.subject) criteriaParts.push(`subject: "${f.criteria.subject}"`);
+          if (f.criteria?.query) criteriaParts.push(`query: "${f.criteria.query}"`);
+
+          const actionParts: string[] = [];
+          if (f.action?.addLabelIds?.length) actionParts.push(`addLabels: [${f.action.addLabelIds.join(', ')}]`);
+          if (f.action?.removeLabelIds?.length) actionParts.push(`removeLabels: [${f.action.removeLabelIds.join(', ')}]`);
+
+          return `${idx + 1}. [ID: ${f.id}]\n   Match: ${criteriaParts.join(' | ') || 'all'}\n   Action: ${actionParts.join(' | ') || 'none'}`;
+        });
+
         return {
           content: [
             {
               type: 'text',
-              text: 'Error: Gmail credentials are not authenticated. Run "npx google-gmail-mcp auth" first.',
+              text: `Total Active Gmail Filters: ${filters.length}\n\n${summaryLines.join('\n\n') || 'No filters configured.'}`,
             },
           ],
         };
+      } catch (err: unknown) {
+        return formatSafeError(err, 'gmail_list_filters');
       }
-
-      const gmail = getAuthenticatedGmailClient();
-      const res = await gmail.users.settings.filters.list({ userId: 'me' });
-      const filters = res.data.filter || [];
-
-      const summaryLines = filters.map((f, idx) => {
-        const criteriaParts: string[] = [];
-        if (f.criteria?.from) criteriaParts.push(`from: "${f.criteria.from}"`);
-        if (f.criteria?.to) criteriaParts.push(`to: "${f.criteria.to}"`);
-        if (f.criteria?.subject) criteriaParts.push(`subject: "${f.criteria.subject}"`);
-        if (f.criteria?.query) criteriaParts.push(`query: "${f.criteria.query}"`);
-
-        const actionParts: string[] = [];
-        if (f.action?.addLabelIds?.length) actionParts.push(`addLabels: [${f.action.addLabelIds.join(', ')}]`);
-        if (f.action?.removeLabelIds?.length) actionParts.push(`removeLabels: [${f.action.removeLabelIds.join(', ')}]`);
-
-        return `${idx + 1}. [ID: ${f.id}]\n   Match: ${criteriaParts.join(' | ') || 'all'}\n   Action: ${actionParts.join(' | ') || 'none'}`;
-      });
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Total Active Gmail Filters: ${filters.length}\n\n${summaryLines.join('\n\n') || 'No filters configured.'}`,
-          },
-        ],
-      };
     }
   );
 
@@ -357,29 +401,24 @@ export async function startHybridMcpServer(): Promise<void> {
       filterId: z.string().describe('The unique filter ID to delete (obtain from gmail_list_filters)'),
     },
     async (args) => {
-      const { hasTokens } = checkCredentialsStatus();
-      if (!hasTokens) {
+      const authError = ensureAuthenticated();
+      if (authError) return authError;
+
+      try {
+        const gmail = getAuthenticatedGmailClient();
+        await gmail.users.settings.filters.delete({ userId: 'me', id: args.filterId });
+
         return {
           content: [
             {
               type: 'text',
-              text: 'Error: Gmail credentials are not authenticated. Run "npx google-gmail-mcp auth" first.',
+              text: `Successfully deleted Gmail filter rule with ID: ${args.filterId}`,
             },
           ],
         };
+      } catch (err: unknown) {
+        return formatSafeError(err, 'gmail_delete_filter');
       }
-
-      const gmail = getAuthenticatedGmailClient();
-      await gmail.users.settings.filters.delete({ userId: 'me', id: args.filterId });
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Successfully deleted Gmail filter rule with ID: ${args.filterId}`,
-          },
-        ],
-      };
     }
   );
 
@@ -392,72 +431,67 @@ export async function startHybridMcpServer(): Promise<void> {
     'Read-only summary of the current INBOX status: total messages, unread count, and breakdown across Gmail smart categories without mutating anything.',
     {},
     async () => {
-      const { hasTokens } = checkCredentialsStatus();
-      if (!hasTokens) {
+      const authError = ensureAuthenticated();
+      if (authError) return authError;
+
+      try {
+        const gmail = getAuthenticatedGmailClient();
+
+        async function getCategoryEstimate(category: string): Promise<number> {
+          try {
+            const res = await gmail.users.messages.list({
+              userId: 'me',
+              q: `label:INBOX category:${category}`,
+              maxResults: 1,
+            });
+            return res.data.resultSizeEstimate ?? (res.data.messages?.length || 0);
+          } catch {
+            return 0;
+          }
+        }
+
+        const [inboxRes, unreadRes, primaryCount, updatesCount, promoCount, socialCount, forumsCount] =
+          await Promise.all([
+            gmail.users.messages.list({ userId: 'me', q: 'label:INBOX', maxResults: 500 }),
+            gmail.users.messages.list({ userId: 'me', q: 'label:INBOX is:unread', maxResults: 500 }),
+            getCategoryEstimate('primary'),
+            getCategoryEstimate('updates'),
+            getCategoryEstimate('promotions'),
+            getCategoryEstimate('social'),
+            getCategoryEstimate('forums'),
+          ]);
+
+        const totalInbox = inboxRes.data.messages?.length || 0;
+        const unreadInbox = unreadRes.data.messages?.length || 0;
+        const isInboxZero = totalInbox === 0;
+
+        const reportLines = [
+          `====================================================`,
+          `                 Gmail Inbox Summary                `,
+          `====================================================`,
+          `Inbox Status:        ${isInboxZero ? '🎯 TRUE INBOX ZERO (0 messages)' : `${totalInbox} message(s)`}`,
+          `Unread Messages:     ${unreadInbox}`,
+          '',
+          `Category Breakdown (in INBOX):`,
+          ` - Primary:         ${primaryCount}`,
+          ` - Updates:         ${updatesCount}`,
+          ` - Promotions:      ${promoCount}`,
+          ` - Social:          ${socialCount}`,
+          ` - Forums:          ${forumsCount}`,
+          `====================================================`,
+        ];
+
         return {
           content: [
             {
               type: 'text',
-              text: 'Error: Gmail credentials are not authenticated. Run "npx google-gmail-mcp auth" first.',
+              text: reportLines.join('\n'),
             },
           ],
         };
+      } catch (err: unknown) {
+        return formatSafeError(err, 'gmail_inbox_summary');
       }
-
-      const gmail = getAuthenticatedGmailClient();
-
-      async function getCategoryEstimate(category: string): Promise<number> {
-        try {
-          const res = await gmail.users.messages.list({
-            userId: 'me',
-            q: `label:INBOX category:${category}`,
-            maxResults: 1,
-          });
-          return res.data.resultSizeEstimate ?? (res.data.messages?.length || 0);
-        } catch {
-          return 0;
-        }
-      }
-
-      const [inboxRes, unreadRes, primaryCount, updatesCount, promoCount, socialCount, forumsCount] =
-        await Promise.all([
-          gmail.users.messages.list({ userId: 'me', q: 'label:INBOX', maxResults: 500 }),
-          gmail.users.messages.list({ userId: 'me', q: 'label:INBOX is:unread', maxResults: 500 }),
-          getCategoryEstimate('primary'),
-          getCategoryEstimate('updates'),
-          getCategoryEstimate('promotions'),
-          getCategoryEstimate('social'),
-          getCategoryEstimate('forums'),
-        ]);
-
-      const totalInbox = inboxRes.data.messages?.length || 0;
-      const unreadInbox = unreadRes.data.messages?.length || 0;
-      const isInboxZero = totalInbox === 0;
-
-      const reportLines = [
-        `====================================================`,
-        `                 Gmail Inbox Summary                `,
-        `====================================================`,
-        `Inbox Status:        ${isInboxZero ? '🎯 TRUE INBOX ZERO (0 messages)' : `${totalInbox} message(s)`}`,
-        `Unread Messages:     ${unreadInbox}`,
-        '',
-        `Category Breakdown (in INBOX):`,
-        ` - Primary:         ${primaryCount}`,
-        ` - Updates:         ${updatesCount}`,
-        ` - Promotions:      ${promoCount}`,
-        ` - Social:          ${socialCount}`,
-        ` - Forums:          ${forumsCount}`,
-        `====================================================`,
-      ];
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: reportLines.join('\n'),
-          },
-        ],
-      };
     }
   );
 
@@ -478,78 +512,73 @@ export async function startHybridMcpServer(): Promise<void> {
         .describe('Maximum number of heavy email records to return (default: 25)'),
     },
     async (args) => {
-      const { hasTokens } = checkCredentialsStatus();
-      if (!hasTokens) {
+      const authError = ensureAuthenticated();
+      if (authError) return authError;
+
+      try {
+        const gmail = getAuthenticatedGmailClient();
+        const query = `larger:${args.minSizeMb}M`;
+        const listRes = await gmail.users.messages.list({
+          userId: 'me',
+          q: query,
+          maxResults: args.maxResults,
+        });
+
+        const messages = listRes.data.messages || [];
+        const items: Array<{
+          id: string;
+          from: string;
+          subject: string;
+          date: string;
+          sizeKb: number;
+          labels: string[];
+        }> = [];
+
+        for (const m of messages) {
+          if (!m.id) continue;
+          try {
+            const msg = await gmail.users.messages.get({
+              userId: 'me',
+              id: m.id,
+              format: 'metadata',
+              metadataHeaders: ['From', 'Subject', 'Date'],
+            });
+            const headers = msg.data.payload?.headers || [];
+            const from = headers.find((h) => h.name?.toLowerCase() === 'from')?.value || 'Unknown Sender';
+            const subject = headers.find((h) => h.name?.toLowerCase() === 'subject')?.value || '(no subject)';
+            const date = headers.find((h) => h.name?.toLowerCase() === 'date')?.value || '';
+            const sizeKb = Math.round((msg.data.sizeEstimate || 0) / 1024);
+            items.push({
+              id: m.id,
+              from,
+              subject,
+              date,
+              sizeKb,
+              labels: msg.data.labelIds || [],
+            });
+          } catch {
+            // Skip if unable to fetch metadata
+          }
+        }
+
+        items.sort((a, b) => b.sizeKb - a.sizeKb);
+
+        const lines = items.map((item, idx) => {
+          const sizeMb = (item.sizeKb / 1024).toFixed(1);
+          return `${idx + 1}. [${item.id}] ${sizeMb} MB | From: ${item.from} | Subject: "${item.subject}" | Date: ${item.date}`;
+        });
+
         return {
           content: [
             {
               type: 'text',
-              text: 'Error: Gmail credentials are not authenticated. Run "npx google-gmail-mcp auth" first.',
+              text: `Storage Audit (${query}): Found ${messages.length} message(s) >= ${args.minSizeMb} MB:\n\n${lines.join('\n') || 'No messages found exceeding size threshold.'}`,
             },
           ],
         };
+      } catch (err: unknown) {
+        return formatSafeError(err, 'gmail_storage_audit');
       }
-
-      const gmail = getAuthenticatedGmailClient();
-      const query = `larger:${args.minSizeMb}M`;
-      const listRes = await gmail.users.messages.list({
-        userId: 'me',
-        q: query,
-        maxResults: args.maxResults,
-      });
-
-      const messages = listRes.data.messages || [];
-      const items: Array<{
-        id: string;
-        from: string;
-        subject: string;
-        date: string;
-        sizeKb: number;
-        labels: string[];
-      }> = [];
-
-      for (const m of messages) {
-        if (!m.id) continue;
-        try {
-          const msg = await gmail.users.messages.get({
-            userId: 'me',
-            id: m.id,
-            format: 'metadata',
-            metadataHeaders: ['From', 'Subject', 'Date'],
-          });
-          const headers = msg.data.payload?.headers || [];
-          const from = headers.find((h) => h.name?.toLowerCase() === 'from')?.value || 'Unknown Sender';
-          const subject = headers.find((h) => h.name?.toLowerCase() === 'subject')?.value || '(no subject)';
-          const date = headers.find((h) => h.name?.toLowerCase() === 'date')?.value || '';
-          const sizeKb = Math.round((msg.data.sizeEstimate || 0) / 1024);
-          items.push({
-            id: m.id,
-            from,
-            subject,
-            date,
-            sizeKb,
-            labels: msg.data.labelIds || [],
-          });
-        } catch {
-          // Skip if unable to fetch metadata
-        }
-      }
-
-      items.sort((a, b) => b.sizeKb - a.sizeKb);
-
-      const lines = items.map((item, idx) => {
-        const sizeMb = (item.sizeKb / 1024).toFixed(1);
-        return `${idx + 1}. [${item.id}] ${sizeMb} MB | From: ${item.from} | Subject: "${item.subject}" | Date: ${item.date}`;
-      });
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Storage Audit (${query}): Found ${messages.length} message(s) >= ${args.minSizeMb} MB:\n\n${lines.join('\n') || 'No messages found exceeding size threshold.'}`,
-          },
-        ],
-      };
     }
   );
 

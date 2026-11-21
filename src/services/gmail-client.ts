@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
+import crypto from 'node:crypto';
 import { URL } from 'node:url';
 import { google, gmail_v1 } from 'googleapis';
 
@@ -21,9 +22,13 @@ export const DEFAULT_LOCAL_KEYS_PATH = path.join(process.cwd(), 'gcp-oauth.keys.
 export const DEFAULT_CREDENTIALS_PATH = path.join(CONFIG_DIR, 'credentials.json');
 
 /**
- * Standard Gmail API scopes required for sorting, filtering, label management, and storage auditing.
+ * Scopes required for sorting, filtering, label management, and storage auditing under the Principle of Least Privilege.
+ * Does not request unrestricted permanent account deletion scopes.
  */
-export const DEFAULT_SCOPES: readonly string[] = ['https://mail.google.com/'];
+export const DEFAULT_SCOPES: readonly string[] = [
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.settings.basic',
+];
 
 /**
  * Resolves the path to the Google Cloud OAuth client keys JSON file.
@@ -155,24 +160,43 @@ function createLoopbackServer(port: number): Promise<{ server: http.Server; port
 
 /**
  * Attempts to open a URL in the user's default browser across Linux, macOS, and Windows.
+ * Uses shell-free direct process spawning with argument arrays to prevent command injection.
  *
- * @param url - URL to open.
- * @returns Promise resolving to true if launch command executed successfully, false otherwise.
+ * @param url - HTTPS URL to open in default browser.
+ * @returns Promise resolving to true if launch command spawned successfully, false otherwise.
  */
 async function openBrowser(url: string): Promise<boolean> {
-  const { exec } = await import('node:child_process');
+  if (!url.startsWith('https://')) {
+    return false;
+  }
+  const { spawn } = await import('node:child_process');
   return new Promise((resolve) => {
     let command: string;
+    let args: string[];
+
     if (process.platform === 'darwin') {
-      command = `open "${url}"`;
+      command = 'open';
+      args = [url];
     } else if (process.platform === 'win32') {
-      command = `start "" "${url}"`;
+      command = 'rundll32.exe';
+      args = ['url.dll,FileProtocolHandler', url];
     } else {
-      command = `xdg-open "${url}"`;
+      command = 'xdg-open';
+      args = [url];
     }
-    exec(command, (err) => {
-      resolve(!err);
-    });
+
+    try {
+      const child = spawn(command, args, { stdio: 'ignore', detached: true });
+      child.on('error', () => {
+        resolve(false);
+      });
+      child.on('spawn', () => {
+        resolve(true);
+      });
+      child.unref();
+    } catch {
+      resolve(false);
+    }
   });
 }
 
@@ -183,8 +207,7 @@ async function openBrowser(url: string): Promise<boolean> {
  * authorization consent URL in the browser, exchanges the authorization code for tokens,
  * persists the credentials securely with 0o600 permissions, and shuts down the server cleanly.
  *
- * Avoids port 3000 conflicts by falling back gracefully to dynamic ephemeral ports per Google's
- * OAuth 2.0 Desktop App specification.
+ * Includes cryptographically secure random CSRF state verification and dynamic ephemeral port fallback.
  *
  * @throws Error if OAuth client keys are missing or authentication fails.
  */
@@ -275,10 +298,14 @@ export async function runInteractiveAuth(): Promise<void> {
     redirectUri
   );
 
+  // Generate cryptographically secure random state parameter for CSRF mitigation
+  const expectedState = crypto.randomBytes(32).toString('hex');
+
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: [...DEFAULT_SCOPES],
     prompt: 'consent',
+    state: expectedState,
   });
 
   console.log('Initializing native OAuth loopback flow...');
@@ -334,7 +361,38 @@ export async function runInteractiveAuth(): Promise<void> {
       }
 
       const code = reqUrl.searchParams.get('code');
+      const returnedState = reqUrl.searchParams.get('state');
       const error = reqUrl.searchParams.get('error');
+
+      // Validate CSRF state parameter using constant-time comparison
+      const stateBuffer = returnedState ? Buffer.from(returnedState, 'utf8') : null;
+      const expectedBuffer = Buffer.from(expectedState, 'utf8');
+
+      if (
+        !stateBuffer ||
+        stateBuffer.length !== expectedBuffer.length ||
+        !crypto.timingSafeEqual(stateBuffer, expectedBuffer)
+      ) {
+        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`
+          <!DOCTYPE html>
+          <html>
+            <head><meta charset="utf-8"><title>OAuth State Verification Failed</title></head>
+            <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #f8fafc;">
+              <div style="background: #1e293b; padding: 2rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; max-width: 450px;">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">🛡️</div>
+                <h1 style="font-size: 1.5rem; margin-bottom: 0.5rem; color: #f87171;">CSRF Verification Failed</h1>
+                <p style="color: #94a3b8; font-size: 0.95rem; line-height: 1.5;">Invalid or missing OAuth state parameter. Potential CSRF attempt blocked.</p>
+              </div>
+            </body>
+          </html>
+        `);
+        clearTimeout(timeout);
+        process.removeListener('SIGINT', sigintHandler);
+        cleanup();
+        reject(new Error('Invalid or missing OAuth state parameter.'));
+        return;
+      }
 
       if (error) {
         res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
