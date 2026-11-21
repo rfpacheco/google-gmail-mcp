@@ -1,5 +1,7 @@
 # Gmail Automation & Hybrid MCP Suite
 
+[![M8ven Verified](https://m8ven.ai/badge/mcp/rfpacheco-google-gmail-mcp-1c1q8h?variant=verified&v=12b11c3e76ad085fa50522e0f081c0f0)](https://m8ven.ai/mcp/rfpacheco-google-gmail-mcp-1c1q8h?s=readme)
+
 A high-performance TypeScript backend and Model Context Protocol (MCP) suite for automated Gmail management: deterministic client-side sorting, bulk inbox sweeps, structured label taxonomy, and persistent server-side filter creation with "Skip Inbox" enforcement.
 
 ---
