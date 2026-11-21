@@ -102,7 +102,7 @@ function formatSafeError(error: unknown, context: string): McpToolResponse {
 export async function startHybridMcpServer(): Promise<void> {
   const server = new McpServer({
     name: 'google-gmail-mcp',
-    version: '1.0.0',
+    version: '1.0.1',
   });
 
   /**
@@ -132,6 +132,12 @@ export async function startHybridMcpServer(): Promise<void> {
         .describe('Field to sort by'),
       sortDirection: z.enum(['asc', 'desc']).default('desc').describe('Sort order'),
       maxResults: z.number().min(1).max(250).default(50).describe('Max messages to retrieve and sort'),
+    },
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
     },
     async (args) => {
       const authError = ensureAuthenticated();
@@ -202,6 +208,12 @@ export async function startHybridMcpServer(): Promise<void> {
       archiveInbox: z.boolean().default(false).describe('Whether to remove the INBOX label (archive)'),
       markAsRead: z.boolean().default(false).describe('Whether to remove the UNREAD label (mark as read)'),
     },
+    {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     async (args) => {
       const authError = ensureAuthenticated();
       if (authError) return authError;
@@ -254,6 +266,12 @@ export async function startHybridMcpServer(): Promise<void> {
     'gmail_sync_taxonomy_labels',
     'Ensures all standardized organizational labels (Work, Finance, Newsletters, etc.) exist in the user Gmail account.',
     {},
+    {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     async () => {
       const authError = ensureAuthenticated();
       if (authError) return authError;
@@ -290,6 +308,12 @@ export async function startHybridMcpServer(): Promise<void> {
       query: z.string().optional().describe('Search query matching email body/metadata'),
       targetLabelName: z.string().optional().describe('Label name to apply to matching emails'),
       archiveInbox: z.boolean().default(false).describe('Whether to skip the inbox'),
+    },
+    {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
     },
     async (args) => {
       const authError = ensureAuthenticated();
@@ -353,6 +377,12 @@ export async function startHybridMcpServer(): Promise<void> {
     'gmail_list_filters',
     'Lists all existing automated server-side filter rules registered in the user Gmail settings.',
     {},
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     async () => {
       const authError = ensureAuthenticated();
       if (authError) return authError;
@@ -400,6 +430,12 @@ export async function startHybridMcpServer(): Promise<void> {
     {
       filterId: z.string().describe('The unique filter ID to delete (obtain from gmail_list_filters)'),
     },
+    {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     async (args) => {
       const authError = ensureAuthenticated();
       if (authError) return authError;
@@ -430,6 +466,12 @@ export async function startHybridMcpServer(): Promise<void> {
     'gmail_inbox_summary',
     'Read-only summary of the current INBOX status: total messages, unread count, and breakdown across Gmail smart categories without mutating anything.',
     {},
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     async () => {
       const authError = ensureAuthenticated();
       if (authError) return authError;
@@ -510,6 +552,12 @@ export async function startHybridMcpServer(): Promise<void> {
         .max(100)
         .default(25)
         .describe('Maximum number of heavy email records to return (default: 25)'),
+    },
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
     },
     async (args) => {
       const authError = ensureAuthenticated();
